@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AQI Vision — Air Quality Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+
+<canvas id="particleCanvas"></canvas>
+<div class="toast-stack" id="toastStack"></div>
+
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">
+        <span class="eyebrow">Air Quality Observatory</span>
+        <h1>AQI Vision</h1>
+      </div>
+    </div>
+    <div class="status-pill">
+      <span class="status-dot"></span>
+      <span id="dataRangeLabel">Model online · {{ min_date }} – {{ max_date }}</span>
+    </div>
+  </div>
+
+  <div class="ticker">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-item">Loading live readings…</span>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tab-bar" id="tabBar">
+    <button class="tab-btn active" data-tab="reading">🌡️ Live Reading</button>
+    <button class="tab-btn" data-tab="compare">⚖️ Compare Cities</button>
+    <button class="tab-btn" data-tab="rankings">🏆 City Rankings</button>
+    <button class="tab-btn" data-tab="calendar">📅 Monthly Calendar</button>
+    <button class="tab-btn" data-tab="map">🗺️ Map View</button>
+    <button class="tab-btn" data-tab="whatif">🧪 What-If Lab</button>
+    <button class="tab-btn" data-tab="seasonal">📆 Seasonal Patterns</button>
+  </div>
+
+  <!-- ===================== TAB: LIVE READING ===================== -->
+  <div class="tab-panel active" id="tab-reading">
+    <div class="hero" id="reportCard">
+      <div class="panel">
+        <p class="panel-title">Reading Station</p>
+        <h2>Take an air quality reading</h2>
+
+        <div class="field">
+          <label for="citySelect">City</label>
+          <select id="citySelect">
+            {% for city in cities %}
+            <option value="{{ city }}">{{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="dateInput">Date</label>
+          <input type="date" id="dateInput" value="{{ max_date }}" />
+        </div>
+
+        <div class="field">
+          <label for="modelSelect">Prediction model</label>
+          <select id="modelSelect">
+            {% for m in models %}
+            <option value="{{ m }}" {% if m == "Random Forest" %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button class="btn-primary" id="predictBtn">Take reading</button>
+        <p class="hint">Runs a trained model in real time and forecasts the next 7 days.</p>
+
+        <div class="alert-toggle-row">
+          <label class="switch">
+            <input type="checkbox" id="alertToggle">
+            <span class="switch-slider"></span>
+          </label>
+          <span class="alert-toggle-label">Notify me if AQI ≥</span>
+          <input type="number" id="alertThreshold" value="200" min="0" max="500" class="alert-threshold-input" />
+        </div>
+      </div>
+
+      <div class="panel readout-panel">
+        <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+          <p class="panel-title" style="margin:0;">Live Readout</p>
+          <button class="icon-btn" id="downloadReportBtn" title="Download report card">📷</button>
+        </div>
+        <div class="gauge">
+          <div class="gauge-ring"></div>
+          <div class="gauge-center">
+            <div class="gauge-value" id="gaugeValue">—</div>
+            <div class="gauge-unit">AQI INDEX</div>
+          </div>
+          <div class="gauge-needle" id="gaugeNeedle"></div>
+          <div class="gauge-hub"></div>
+        </div>
+
+        <div class="category-badge" id="categoryBadge">
+          <span class="dot" id="categoryDot"></span>
+          <span id="categoryLabel">Awaiting reading</span>
+        </div>
+        <div class="readout-meta" id="readoutMeta">Select a city and date, then take a reading.</div>
+
+        <div class="advice-box" id="adviceBox" style="display:none;">
+          <strong>Advisory:</strong> <span id="adviceText"></span><br/>
+          <span id="sensitiveText" style="display:block; margin-top:6px;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-heading">
+      <span class="eyebrow">Composition</span>
+      <h3>Pollutant breakdown</h3>
+    </div>
+    <div class="pollutant-grid" id="pollutantGrid"></div>
+
+    <div class="section-heading">
+      <span class="eyebrow">Fingerprint</span>
+      <h3>Pollution profile</h3>
+    </div>
+    <div class="chart-panel">
+      <h4>Pollutant radar</h4>
+      <p>Each pollutant scaled 0–100 relative to its typical range — the shape is this reading's pollution "fingerprint".</p>
+      <canvas id="radarChart"></canvas>
+    </div>
+
+    <div class="section-heading">
+      <span class="eyebrow">Trends</span>
+      <h3>Forecast &amp; history</h3>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-panel">
+        <h4>7-day forecast</h4>
+        <p>Model-projected AQI for the week ahead, from the selected date.</p>
+        <canvas id="forecastChart"></canvas>
+      </div>
+      <div class="chart-panel">
+        <h4>Last 30 days</h4>
+        <p>Recorded AQI trend for the selected city.</p>
+        <canvas id="historyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: COMPARE ===================== -->
+  <div class="tab-panel" id="tab-compare">
+    <div class="panel">
+      <p class="panel-title">Side-by-side</p>
+      <h2>Compare two cities</h2>
+      <div class="field-row">
+        <div class="field">
+          <label for="compareCityA">City A</label>
+          <select id="compareCityA">
+            {% for city in cities %}
+            <option value="{{ city }}" {% if loop.index == 1 %}selected{% endif %}>{{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="compareCityB">City B</label>
+          <select id="compareCityB">
+            {% for city in cities %}
+            <option value="{{ city }}" {% if loop.index == 5 %}selected{% endif %}>{{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="compareDate">Date</label>
+        <input type="date" id="compareDate" value="{{ max_date }}" />
+      </div>
+      <button class="btn-primary" id="compareBtn">Compare</button>
+    </div>
+
+    <div class="compare-grid">
+      <div class="compare-card" id="compareCardA">
+        <div class="city-name">—</div>
+        <div class="big-aqi">—</div>
+        <div class="category-badge" id="compareBadgeA"><span class="dot"></span><span>—</span></div>
+      </div>
+      <div class="compare-card" id="compareCardB">
+        <div class="city-name">—</div>
+        <div class="big-aqi">—</div>
+        <div class="category-badge" id="compareBadgeB"><span class="dot"></span><span>—</span></div>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-top:20px;">
+      <h4>Pollutant comparison</h4>
+      <p>Side-by-side pollutant levels for the chosen date.</p>
+      <canvas id="compareChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: RANKINGS ===================== -->
+  <div class="tab-panel" id="tab-rankings">
+    <div class="panel">
+      <p class="panel-title">Leaderboard</p>
+      <h2>City rankings</h2>
+      <div class="rankings-toolbar">
+        <div class="field">
+          <label for="rankDate">Date</label>
+          <input type="date" id="rankDate" value="{{ max_date }}" />
+        </div>
+        <div class="field">
+          <label for="rankModel">Model</label>
+          <select id="rankModel">
+            {% for m in models %}
+            <option value="{{ m }}" {% if m == "Random Forest" %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="rankSearch">Search city</label>
+          <input type="text" id="rankSearch" placeholder="Type to filter…" />
+        </div>
+      </div>
+      <table class="rank-table">
+        <tbody id="rankTableBody">
+          <tr><td colspan="4">Loading rankings…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: CALENDAR ===================== -->
+  <div class="tab-panel" id="tab-calendar">
+    <div class="panel">
+      <p class="panel-title">Heatmap</p>
+      <h2>Monthly AQI calendar</h2>
+      <div class="field">
+        <label for="calCity">City</label>
+        <select id="calCity">
+          {% for city in cities %}
+          <option value="{{ city }}">{{ city }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="calendar-toolbar">
+        <button class="calendar-nav-btn" id="calPrev">‹</button>
+        <div class="calendar-month-label" id="calLabel">—</div>
+        <button class="calendar-nav-btn" id="calNext">›</button>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+      <div class="legend-row">
+        <div class="legend-item"><span class="dot" style="background:#4CAF50"></span>Good</div>
+        <div class="legend-item"><span class="dot" style="background:#8BC34A"></span>Satisfactory</div>
+        <div class="legend-item"><span class="dot" style="background:#FFC107"></span>Moderate</div>
+        <div class="legend-item"><span class="dot" style="background:#FF7043"></span>Poor</div>
+        <div class="legend-item"><span class="dot" style="background:#E53935"></span>Very Poor</div>
+        <div class="legend-item"><span class="dot" style="background:#7B1FA2"></span>Severe</div>
+      </div>
+      <p class="hint">Click any day to load it into the Live Reading tab.</p>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: MAP VIEW ===================== -->
+  <div class="tab-panel" id="tab-map">
+    <div class="panel">
+      <p class="panel-title">Geography</p>
+      <h2>Live AQI map</h2>
+      <div class="field" style="max-width:260px;">
+        <label for="mapDate">Date</label>
+        <input type="date" id="mapDate" value="{{ max_date }}" />
+      </div>
+      <div class="india-map" id="indiaMap">
+        <div class="hint" style="padding:20px;">Loading map…</div>
+      </div>
+      <p class="hint">Positions are approximate and illustrative, not to scale. Click a city marker to open its full reading.</p>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: WHAT-IF LAB ===================== -->
+  <div class="tab-panel" id="tab-whatif">
+    <div class="hero">
+      <div class="panel">
+        <p class="panel-title">Simulator</p>
+        <h2>What-if pollutant lab</h2>
+        <p class="hint" style="margin-top:-10px; margin-bottom:20px;">Drag the sliders to simulate pollutant levels and see how the overall AQI responds — using the same sub-index method India's real AQI uses (the worst pollutant determines the category).</p>
+
+        <div id="whatifSliders"></div>
+      </div>
+
+      <div class="panel readout-panel">
+        <p class="panel-title" style="align-self:flex-start;">Simulated Readout</p>
+        <div class="gauge">
+          <div class="gauge-ring"></div>
+          <div class="gauge-center">
+            <div class="gauge-value" id="whatifGaugeValue">—</div>
+            <div class="gauge-unit">AQI INDEX</div>
+          </div>
+          <div class="gauge-needle" id="whatifGaugeNeedle"></div>
+          <div class="gauge-hub"></div>
+        </div>
+        <div class="category-badge" id="whatifBadge">
+          <span class="dot" id="whatifDot"></span>
+          <span id="whatifLabel">Adjust sliders</span>
+        </div>
+        <div class="readout-meta" id="whatifDriver">Driving pollutant: —</div>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-top:20px;">
+      <h4>Sub-index by pollutant</h4>
+      <p>The tallest bar is the pollutant currently determining your simulated AQI.</p>
+      <canvas id="whatifChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ===================== TAB: SEASONAL PATTERNS ===================== -->
+  <div class="tab-panel" id="tab-seasonal">
+    <div class="panel">
+      <p class="panel-title">Long-run averages</p>
+      <h2>Seasonal &amp; weekly patterns</h2>
+      <div class="field" style="max-width:260px;">
+        <label for="seasonCity">City</label>
+        <select id="seasonCity">
+          {% for city in cities %}
+          <option value="{{ city }}">{{ city }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="chart-grid" style="margin-top:20px;">
+      <div class="chart-panel">
+        <h4>Weekday pattern</h4>
+        <p>Average AQI by day of week — traffic &amp; industrial activity leave a signature.</p>
+        <canvas id="weekdayChart"></canvas>
+      </div>
+      <div class="chart-panel">
+        <h4>Monthly (seasonal) pattern</h4>
+        <p>Average AQI by month — winter inversion vs. monsoon relief.</p>
+        <canvas id="monthlyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    AQI Vision — a machine learning air quality forecasting project. Demo dataset is synthetically generated for standalone use.
+  </footer>
+</div>
+
+<!-- Chatbot -->
+<button class="chat-toggle" id="chatToggle" aria-label="Open assistant">💬</button>
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-header">
+    <div class="title">Station Assistant</div>
+    <div class="sub">Ask about AQI &amp; pollutants</div>
+  </div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="msg bot">Hi! Ask me things like "AQI in Mumbai", "what is PM2.5", or "when should I wear a mask".</div>
+  </div>
+  <div class="chip-row">
+    <span class="chip" data-q="What is PM2.5?">PM2.5?</span>
+    <span class="chip" data-q="AQI in Delhi">AQI in Delhi</span>
+    <span class="chip" data-q="When should I wear a mask?">Mask advice</span>
+    <span class="chip" data-q="What are the AQI categories?">Categories</span>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chatInput" placeholder="Type a question…" />
+    <button id="chatSend">Send</button>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
